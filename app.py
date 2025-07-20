@@ -8,26 +8,24 @@ def index():
     return render_template('index.html')
 
 @app.route('/scan', methods=['POST'])
-def scan():
-    barcode = request.json.get('barcode')
-    print("Scanned Barcode:", barcode)
+def scan_barcode():
+    data = request.get_json()
+    barcode = data.get('barcode')
 
-    # UPCitemDB lookup
-    api_url = f"https://api.upcitemdb.com/prod/trial/lookup?upc={barcode}"
-    response = requests.get(api_url)
-    data = response.json()
+    url = f"https://world.openfoodfacts.org/api/v0/product/{barcode}.json"
+    res = requests.get(url)
+    product = res.json()
 
-    if data.get("items"):
-        product = data["items"][0]
-        return jsonify({
-            'barcode': barcode,
-            'title': product.get("title"),
-            'brand': product.get("brand"),
-            'description': product.get("description"),
-            'image': product.get("images", [None])[0]
-        })
-    else:
-        return jsonify({'barcode': barcode, 'error': 'Product not found'})
+    if product.get('status') != 1:
+        return jsonify({'error': 'Product not found in OpenFoodFacts'}), 404
+
+    p = product['product']
+    return jsonify({
+        "title": p.get("product_name", "Unknown Product"),
+        "brand": p.get("brands", "Unknown Brand"),
+        "description": p.get("categories", ""),
+        "image": p.get("image_front_small_url", "")
+    })
 
 if __name__ == '__main__':
     app.run(debug=True, host="0.0.0.0", port=5000)

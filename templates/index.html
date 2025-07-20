@@ -10,51 +10,37 @@
       margin: 0;
       padding: 0;
       height: 100%;
-      overflow: hidden;
       font-family: Arial, sans-serif;
       background-color: #f0f0f0;
       display: flex;
       flex-direction: column;
       align-items: center;
+      overflow: hidden;
     }
 
-    h2 {
-      margin: 8px 0;
-      font-size: 1.2rem;
-    }
-
-    #result-container {
+    #top-bar {
       width: 100%;
       max-width: 400px;
       padding: 10px;
-      background-color: white;
-      border-bottom: 2px solid #ddd;
-      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+      background-color: #ffffff;
       text-align: center;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
       z-index: 2;
     }
 
-    #result {
-      font-size: 16px;
-    }
-
-    #scanner {
-      width: 100%;
-      max-width: 400px;
-      aspect-ratio: 4/3;
-      background: black;
-      position: relative;
-      z-index: 1;
+    #barcode-value {
+      font-size: 18px;
+      font-weight: bold;
+      margin-right: 10px;
     }
 
     button {
-      margin: 12px 0;
-      padding: 12px 20px;
-      font-size: 16px;
+      padding: 8px 14px;
+      font-size: 15px;
       background-color: #007bff;
       color: white;
       border: none;
-      border-radius: 8px;
+      border-radius: 6px;
       cursor: pointer;
     }
 
@@ -62,43 +48,53 @@
       background-color: #aaa;
     }
 
+    #scanner {
+      width: 100%;
+      max-width: 400px;
+      aspect-ratio: 4/3;
+      background: black;
+    }
+
+    #product-info {
+      font-size: 15px;
+      text-align: center;
+      padding: 12px;
+      width: 100%;
+      max-width: 400px;
+    }
+
     img {
       margin-top: 10px;
-      max-width: 120px;
+      max-width: 100px;
     }
   </style>
 </head>
 <body>
-  <h2>📱 Tap to Scan Barcode</h2>
-
-  <div id="result-container">
-    <div id="result">No barcode scanned yet.</div>
+  <div id="top-bar">
+    Scanned Code: <span id="barcode-value">None</span>
+    <br />
+    <button id="confirm-btn" disabled>✅ Use this Number</button>
   </div>
 
   <div id="scanner"></div>
-  <button id="start-btn">Start Scanning</button>
+
+  <div id="product-info">No product selected yet.</div>
 
   <script>
-    let scanning = false;
-    let scannerStarted = false;
+    let latestScan = null;
 
-    const startBtn = document.getElementById('start-btn');
-    const resultEl = document.getElementById('result');
+    const barcodeEl = document.getElementById('barcode-value');
+    const confirmBtn = document.getElementById('confirm-btn');
+    const resultEl = document.getElementById('product-info');
 
-    startBtn.addEventListener('click', () => {
-      if (scannerStarted) return;
-
-      scannerStarted = true;
-      startBtn.disabled = true;
-      resultEl.innerText = "Initializing camera...";
-
+    function startScanner() {
       Quagga.init({
         inputStream: {
           name: "Live",
           type: "LiveStream",
           target: document.querySelector('#scanner'),
           constraints: {
-            facingMode: "environment" // rear camera
+            facingMode: "environment"
           }
         },
         decoder: {
@@ -110,52 +106,56 @@
             "code_39_reader"
           ]
         }
-      }, function(err) {
+      }, function (err) {
         if (err) {
-          console.error("Quagga init error:", err);
-          resultEl.innerText = "Failed to initialize camera.";
-          startBtn.disabled = false;
-          scannerStarted = false;
+          console.error("Error initializing scanner:", err);
+          resultEl.innerText = "❌ Could not start scanner.";
           return;
         }
         Quagga.start();
-        scanning = true;
-        resultEl.innerText = "Point the camera at a barcode...";
       });
 
-      Quagga.onDetected(function(result) {
-        if (!scanning) return;
+      Quagga.onDetected((result) => {
+        const code = result.codeResult.code;
+        if (code && code !== latestScan) {
+          latestScan = code;
+          barcodeEl.innerText = code;
+          confirmBtn.disabled = false;
+        }
+      });
+    }
 
-        scanning = false;
-        const barcode = result.codeResult.code;
-        resultEl.innerText = "Scanned: " + barcode;
+    confirmBtn.addEventListener('click', () => {
+      if (!latestScan) return;
 
-        Quagga.stop();
-        scannerStarted = false;
-        startBtn.disabled = false;
+      resultEl.innerText = "🔍 Searching product...";
+      confirmBtn.disabled = true;
 
-        fetch('/scan', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ barcode: barcode })
-        })
-        .then(res => res.json())
-        .then(data => {
-          if (data.error) {
-            resultEl.innerText = `❌ ${data.error} (${barcode})`;
-          } else {
-            resultEl.innerHTML = `
-              ✅ <b>${data.title}</b><br>
-              Brand: ${data.brand}<br>
-              ${data.image ? `<img src="${data.image}">` : ''}
-              <br>${data.description || 'No description'}
-            `;
-          }
-        });
+      fetch('/scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ barcode: latestScan })
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.error) {
+          resultEl.innerText = `❌ ${data.error}`;
+        } else {
+          resultEl.innerHTML = `
+            ✅ <b>${data.title}</b><br>
+            Brand: ${data.brand}<br>
+            ${data.image ? `<img src="${data.image}" />` : ''}
+            <br>${data.description || 'No description'}
+          `;
+        }
+      })
+      .catch(err => {
+        resultEl.innerText = "❌ Failed to fetch product.";
+        console.error(err);
       });
     });
+
+    startScanner();
   </script>
 </body>
 </html>
