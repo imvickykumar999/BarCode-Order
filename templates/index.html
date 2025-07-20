@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Barcode Scanner</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      overflow: hidden;
+      font-family: Arial, sans-serif;
+      background-color: #f0f0f0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    h2 {
+      margin: 8px 0;
+      font-size: 1.2rem;
+    }
+
+    #result-container {
+      width: 100%;
+      max-width: 400px;
+      padding: 10px;
+      background-color: white;
+      border-bottom: 2px solid #ddd;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+      text-align: center;
+      z-index: 2;
+    }
+
+    #result {
+      font-size: 16px;
+    }
+
+    #scanner {
+      width: 100%;
+      max-width: 400px;
+      aspect-ratio: 4/3;
+      background: black;
+      position: relative;
+      z-index: 1;
+    }
+
+    button {
+      margin: 12px 0;
+      padding: 12px 20px;
+      font-size: 16px;
+      background-color: #007bff;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+
+    button:disabled {
+      background-color: #aaa;
+    }
+
+    img {
+      margin-top: 10px;
+      max-width: 120px;
+    }
+  </style>
+</head>
+<body>
+  <h2>📱 Tap to Scan Barcode</h2>
+
+  <div id="result-container">
+    <div id="result">No barcode scanned yet.</div>
+  </div>
+
+  <div id="scanner"></div>
+  <button id="start-btn">Start Scanning</button>
+
+  <script>
+    let scanning = false;
+    let scannerStarted = false;
+
+    const startBtn = document.getElementById('start-btn');
+    const resultEl = document.getElementById('result');
+
+    startBtn.addEventListener('click', () => {
+      if (scannerStarted) return;
+
+      scannerStarted = true;
+      startBtn.disabled = true;
+      resultEl.innerText = "Initializing camera...";
+
+      Quagga.init({
+        inputStream: {
+          name: "Live",
+          type: "LiveStream",
+          target: document.querySelector('#scanner'),
+          constraints: {
+            facingMode: "environment" // rear camera
+          }
+        },
+        decoder: {
+          readers: [
+            "code_128_reader",
+            "ean_reader",
+            "ean_8_reader",
+            "upc_reader",
+            "code_39_reader"
+          ]
+        }
+      }, function(err) {
+        if (err) {
+          console.error("Quagga init error:", err);
+          resultEl.innerText = "Failed to initialize camera.";
+          startBtn.disabled = false;
+          scannerStarted = false;
+          return;
+        }
+        Quagga.start();
+        scanning = true;
+        resultEl.innerText = "Point the camera at a barcode...";
+      });
+
+      Quagga.onDetected(function(result) {
+        if (!scanning) return;
+
+        scanning = false;
+        const barcode = result.codeResult.code;
+        resultEl.innerText = "Scanned: " + barcode;
+
+        Quagga.stop();
+        scannerStarted = false;
+        startBtn.disabled = false;
+
+        fetch('/scan', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ barcode: barcode })
+        })
+        .then(res => res.json())
+        .then(data => {
+          if (data.error) {
+            resultEl.innerText = `❌ ${data.error} (${barcode})`;
+          } else {
+            resultEl.innerHTML = `
+              ✅ <b>${data.title}</b><br>
+              Brand: ${data.brand}<br>
+              ${data.image ? `<img src="${data.image}">` : ''}
+              <br>${data.description || 'No description'}
+            `;
+          }
+        });
+      });
+    });
+  </script>
+</body>
+</html>
